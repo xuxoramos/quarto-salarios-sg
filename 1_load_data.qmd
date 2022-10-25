@@ -1,23 +1,50 @@
 ---
-title: "Hello, Quarto"
+title: "Análisis de encuesta de salarios SG"
 format: html
+eval: true
+engine: knitr
 ---
 
-## Markdown
+## Librerías requeridas
 
-Markdown is an easy to read and write text format:
+Para crear documentos políglotas en Quarto se requieren 3 cosas:
 
-- It's _plain text_ so works well with version control
-- It can be **rendered** into HTML, PDF, and more
-- Learn more at: <https://quarto.org/docs/authoring/>
+1. En la parte de config de `YAML` arriba, especificar la propiedad `engine: knitr`.
+2. En un 1er bloque de R, instalar e importar la librería `reticulate`. 
+3. En un 1er bloque de Python, importar tus librerías necesarias para tu documento.
 
-## Code Cell
+### Librerías de R
 
-Here is a Python code cell:
+```{r}
+library(reticulate)
+library(rmarkdown)
+library(htmltools)
+```
+
+### Librerías de Python
 
 ```{python}
-import os
-os.cpu_count()
+import pandas as pd
+```
+
+## Carga de datos
+
+En el repo de [nuestro capítulo anterior](https://github.com/xuxoramos/salarios-notebook) limpiamos los datos antes de convertir todas las columnas a tipos de datos categóricos, ordinales o booleanos, dado que el modelo que queríamos correr es un _RandomForestClassifier_, y el algoritmo subyacente de búsqueda de _scikit-learn_ requiere que nuestros datos sean "transformables" a numérico.
+
+Vamos a tomar los datos justo en el momento **ANTES** de hacer esta transformación. En el notebook anterior guardamos estos dataframes como CSV, y los estamos pasando a este nuevo documento de Quarto.
+
+```{python}
+df_22 = pd.read_csv('df_22_final.csv')
+df_21 = pd.read_csv('df_21_final.csv')
+df_20 = pd.read_csv('df_20_final.csv')
+
+df_22
+```
+
+Y vamos a realizar las transformaciones, pero en R, para mostrar las capacidades políglotas de Quarto.:
+
+```{r}
+reticulate::py$df_22
 ```
 
 ## Equation

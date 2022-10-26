@@ -108,8 +108,8 @@ removeZeroVar <- function(df){
 
 df_22_final <- removeZeroVar(df_22_r)
 
-madd <- polr(salarymx_range ~ ., data = df_22_final)
+#madd <- polr(salarymx_range ~ ., data = df_22_final)
 
-summary(polr)
+#summary(polr)
 
 ```

@@ -1,7 +1,7 @@
 ---
 title: "Análisis de encuesta de salarios SG"
 format: html
-
+engine: knitr
 ---
 
 ## Librerías requeridas
@@ -15,15 +15,19 @@ Para crear documentos políglotas en Quarto se requieren 3 cosas:
 ### Librerías de R
 
 ```{r}
+#| warning: false
+
 library(reticulate)
 library(tidyverse)
 library(polycor)
-library(MASS)
+library(rms)
 ```
 
 ### Librerías de Python
 
 ```{python}
+#| warning: false
+
 import numpy as np
 import pandas as pd
 import matplotlib.pyplot as plt
@@ -37,12 +41,16 @@ En el repo de [nuestro capítulo anterior](https://github.com/xuxoramos/salarios
 Vamos a tomar los datos justo en el momento **ANTES** de hacer esta transformación. En el notebook anterior guardamos estos dataframes como CSV, y los estamos pasando a este nuevo documento de Quarto.
 
 ```{python}
+#| warning: false
+
 df_22_py = pd.read_csv('df_22_final.csv')
 ```
 
 Y vamos a realizar las transformaciones, pero en R, para mostrar las capacidades políglotas de Quarto. Para esto debemos utilizar el objeto `py`, expuesto por `reticulate`:
 
 ```{r}
+#| warning: false
+
 bool_cols <- c('act_arq', 'act_bi', 'act_cap', 'act_cons', 'act_dba', 'act_dir', 'act_doc', 'act_erp', 'act_front', 'act_infosec', 'act_pm', 'act_prog', 'act_req', 'act_soporte', 'act_spi', 'act_techsales', 'act_techwrite', 'act_test', 'act_uxd', 'act_ventas', 'ben_bonus', 'ben_cafeteria', 'ben_car', 'ben_cellphone', 'ben_edu', 'ben_equity', 'ben_family', 'ben_flexhours', 'ben_gas', 'ben_gym', 'ben_healthmajor', 'ben_healthminor', 'ben_homeoffice', 'ben_housing', 'ben_lifeins', 'ben_loan', 'ben_parking', 'ben_vouchers', 'cert_agile', 'cert_android', 'cert_awsarch', 'cert_awsdev', 'cert_ba', 'cert_cgeit', 'cert_cisco', 'cert_cobit', 'cert_entarch', 'cert_gcloudarch', 'cert_gdata', 'cert_gweb', 'cert_infosec', 'cert_itilint', 'cert_itilpra', 'cert_java', 'cert_linux', 'cert_msass', 'cert_msexp', 'cert_oracle', 'cert_pmp', 'cert_sap', 'cert_scrum', 'cert_sixsigma', 'cert_testing1', 'cert_testing2', 'db_DB2', 'db_cassandra', 'db_cosmos', 'db_dynamo', 'db_elastic', 'db_firebasert', 'db_firestore', 'db_mongoDB', 'db_mysql', 'db_neo4j', 'db_oracle', 'db_pgsql', 'db_redis', 'db_sap', 'db_sqlserver', 'dsc_alteryx', 'dsc_azureml', 'dsc_dataiku', 'dsc_domino', 'dsc_h2o', 'dsc_knime', 'dsc_rapidminer', 'dsc_sas', 'dsc_tf', 'dsc_watson', 'front_angular', 'front_react', 'front_vue', 'front_xamarin', 'infra_ansible', 'infra_chef', 'infra_docker', 'infra_k8s', 'infra_oshift', 'infra_ostack', 'infra_puppet', 'infra_terraform', 'infra_vmware', 'lang_bash', 'lang_clang', 'lang_cobol', 'lang_csharp', 'lang_delphi', 'lang_elixir', 'lang_go', 'lang_groovy', 'lang_java', 'lang_js', 'lang_kotlin', 'lang_perl', 'lang_php', 'lang_plsql', 'lang_python', 'lang_ruby', 'lang_rust', 'lang_scala', 'lang_swift', 'lang_vbnet', 'remote')
 cat_cols = c('education','edutype','emptype', 'gender','orgtype','profile','remote','salarymx_range')
 num_cols = c('experience','seniority','english_num')
@@ -58,23 +66,50 @@ df_22_r <- py$df_22_py |>
 colnames(df_22_r)
 ```
 
-En el notebook anterior entrenamos un modelo de `RandomForestClassifier` para extraer la _variable importance_, pero esta métrica no es suficiente para **explicar** el fenómeno de acceder a mayores salarios, sino solo para **clasificar** nuevas observaciones, y dado lo desbalanceado del dataset original, no es sorpresa que el modelo resultante haya tenido tan bajo score en métricas como _F1_, _Precision_ y _Recall_.
+En el notebook anterior entrenamos un modelo de `RandomForestClassifier` para extraer la _variable importance_, pero esta métrica no es suficiente para **explicar** el fenómeno completo de acceder a mayores salarios, sino que solo explica predicciones individuales, sino solo para **clasificar** nuevas observaciones, y dado lo desbalanceado del dataset original, no es sorpresa que el modelo resultante haya tenido tan bajo score en métricas como _F1_, _Precision_ y _Recall_.
 
-Para explicar el fenómeno completo, realizaremos una _Ordinal Logistic Regression_. Los prerrequisitos para este modelo son:
+Para explicar el fenómeno completo, vamos a seguir 2 pasos: 1) realizar un correlograma heterogéneo (datos categóricos y numéricos), y ver si hay hay correlaciones entre las variables independientes y la categórica dependiente; y 2) una regresión logística ordinal para validar si estas correlaciones son significativas y el peso real que tienen sobre la variable objetivo.
 
-1. **1 Variable dependiente categórica, ordinal**: el factor 0 (rango salarial de 0 a 10,000) es menor al factor 1 (rango salarial de 10,000 a 20,000).
-2. **N Variables independientes "mixtas" (como los lonches)**: categóricas ordinales, categóricas no ordinales, y numéricas.
+Primero calcularemos las correlaciones heterogéneas con R:
 
 ```{r}
+#| warning: false
+
 cor_salarios <- hetcor(df_22_r, parallel = TRUE, ncores=9)
 cor_matrix <- cor_salarios$correlations
 ```
 
-Veremos si podemos plotear esta `cor_matrix` con Python.
+Y luego plotearemos la `cor_matrix` resultante con Matplotlib de Python.
 
 ```{python}
-cor_matrix_py = np.matrix(r.cor_matrix)
+#| warning: false
+
+cor_matrix_py = r.cor_matrix
 fig, ax = plt.subplots(figsize=(10,30))
-df_cor = pd.DataFrame({'col_name': r.df_22_r.columns, 'cor_val': cor_matrix_py[:, -1]})
-sns.heatmap(df_cor.sort_values(by=['cor_val'])['cor_val'], ax=ax, yticklabels=df_cor.sort_values(by=['col_name']))
+df_cor = pd.DataFrame({'col_name': r.df_22_r.columns, 'cor_val': np.array(cor_matrix_py[:, -1]).tolist()})
+df_cor.replace(['None', 'nan'], np.nan, inplace=True)
+df_cor.sort_values(by=['cor_val'], inplace=True, ascending=False, na_position='last')
+sns.heatmap(np.transpose(np.matrix(df_cor['cor_val'].tolist())), ax=ax, yticklabels=df_cor['col_name'].tolist(), annot=True, annot_kws={'size': 7})
+```
+
+Ahora realizaremos una _Ordinal Logistic Regression_. Los prerrequisitos para este modelo son `{$df_cor['col_name'][0]}`:
+
+1. **1 Variable dependiente categórica, ordinal**: el factor 0 (rango salarial de 0 a 10,000) es menor al factor 1 (rango salarial de 10,000 a 20,000).
+2. **N Variables independientes "mixtas" (como los lonches)**: categóricas ordinales, categóricas no ordinales, y numéricas.
+
+Lo realizaremos con R:
+
+```{r}
+#| warning: false
+
+removeZeroVar <- function(df){
+  df[, sapply(df, function(x) length(unique(x)) > 1)]
+}
+
+df_22_final <- removeZeroVar(df_22_r)
+
+madd <- polr(salarymx_range ~ ., data = df_22_final)
+
+summary(polr)
+
 ```

@@ -1,13 +1,12 @@
 ---
 title: "Análisis de encuesta de salarios SG"
 format: html
-eval: true
-engine: knitr
+
 ---
 
 ## Librerías requeridas
 
-Para crear documentos políglotas en Quarto se requieren 3 cosas:
+Para crear documentos políglotas en Quarto se requieren 3 cosas: 
 
 1. En la parte de config de `YAML` arriba, especificar la propiedad `engine: knitr`.
 2. En un 1er bloque de R, instalar e importar la librería `reticulate`. 
@@ -17,14 +16,18 @@ Para crear documentos políglotas en Quarto se requieren 3 cosas:
 
 ```{r}
 library(reticulate)
-library(rmarkdown)
-library(htmltools)
+library(tidyverse)
+library(polycor)
+library(MASS)
 ```
 
 ### Librerías de Python
 
 ```{python}
+import numpy as np
 import pandas as pd
+import matplotlib.pyplot as plt
+import seaborn as sns
 ```
 
 ## Carga de datos
@@ -34,23 +37,44 @@ En el repo de [nuestro capítulo anterior](https://github.com/xuxoramos/salarios
 Vamos a tomar los datos justo en el momento **ANTES** de hacer esta transformación. En el notebook anterior guardamos estos dataframes como CSV, y los estamos pasando a este nuevo documento de Quarto.
 
 ```{python}
-df_22 = pd.read_csv('df_22_final.csv')
-df_21 = pd.read_csv('df_21_final.csv')
-df_20 = pd.read_csv('df_20_final.csv')
-
-df_22
+df_22_py = pd.read_csv('df_22_final.csv')
 ```
 
-Y vamos a realizar las transformaciones, pero en R, para mostrar las capacidades políglotas de Quarto.:
+Y vamos a realizar las transformaciones, pero en R, para mostrar las capacidades políglotas de Quarto. Para esto debemos utilizar el objeto `py`, expuesto por `reticulate`:
 
 ```{r}
-reticulate::py$df_22
+bool_cols <- c('act_arq', 'act_bi', 'act_cap', 'act_cons', 'act_dba', 'act_dir', 'act_doc', 'act_erp', 'act_front', 'act_infosec', 'act_pm', 'act_prog', 'act_req', 'act_soporte', 'act_spi', 'act_techsales', 'act_techwrite', 'act_test', 'act_uxd', 'act_ventas', 'ben_bonus', 'ben_cafeteria', 'ben_car', 'ben_cellphone', 'ben_edu', 'ben_equity', 'ben_family', 'ben_flexhours', 'ben_gas', 'ben_gym', 'ben_healthmajor', 'ben_healthminor', 'ben_homeoffice', 'ben_housing', 'ben_lifeins', 'ben_loan', 'ben_parking', 'ben_vouchers', 'cert_agile', 'cert_android', 'cert_awsarch', 'cert_awsdev', 'cert_ba', 'cert_cgeit', 'cert_cisco', 'cert_cobit', 'cert_entarch', 'cert_gcloudarch', 'cert_gdata', 'cert_gweb', 'cert_infosec', 'cert_itilint', 'cert_itilpra', 'cert_java', 'cert_linux', 'cert_msass', 'cert_msexp', 'cert_oracle', 'cert_pmp', 'cert_sap', 'cert_scrum', 'cert_sixsigma', 'cert_testing1', 'cert_testing2', 'db_DB2', 'db_cassandra', 'db_cosmos', 'db_dynamo', 'db_elastic', 'db_firebasert', 'db_firestore', 'db_mongoDB', 'db_mysql', 'db_neo4j', 'db_oracle', 'db_pgsql', 'db_redis', 'db_sap', 'db_sqlserver', 'dsc_alteryx', 'dsc_azureml', 'dsc_dataiku', 'dsc_domino', 'dsc_h2o', 'dsc_knime', 'dsc_rapidminer', 'dsc_sas', 'dsc_tf', 'dsc_watson', 'front_angular', 'front_react', 'front_vue', 'front_xamarin', 'infra_ansible', 'infra_chef', 'infra_docker', 'infra_k8s', 'infra_oshift', 'infra_ostack', 'infra_puppet', 'infra_terraform', 'infra_vmware', 'lang_bash', 'lang_clang', 'lang_cobol', 'lang_csharp', 'lang_delphi', 'lang_elixir', 'lang_go', 'lang_groovy', 'lang_java', 'lang_js', 'lang_kotlin', 'lang_perl', 'lang_php', 'lang_plsql', 'lang_python', 'lang_ruby', 'lang_rust', 'lang_scala', 'lang_swift', 'lang_vbnet', 'remote')
+cat_cols = c('education','edutype','emptype', 'gender','orgtype','profile','remote','salarymx_range')
+num_cols = c('experience','seniority','english_num')
+
+to_cat_lev <- function(x, na.rm = FALSE) {ifelse(x == 'Y', 1, ifelse(x == 'N', -1, 0))}
+
+df_22_r <- py$df_22_py |>
+            mutate_at(bool_cols, to_cat_lev) |>
+            mutate_at(c(cat_cols, bool_cols), function(x) {as_factor(x)}) |>
+            mutate_at(num_cols, function(x) {as.numeric(x)}) |>
+            dplyr::select(-c('id'))
+
+colnames(df_22_r)
 ```
 
-## Equation
+En el notebook anterior entrenamos un modelo de `RandomForestClassifier` para extraer la _variable importance_, pero esta métrica no es suficiente para **explicar** el fenómeno de acceder a mayores salarios, sino solo para **clasificar** nuevas observaciones, y dado lo desbalanceado del dataset original, no es sorpresa que el modelo resultante haya tenido tan bajo score en métricas como _F1_, _Precision_ y _Recall_.
 
-Use LaTeX to write equations:
+Para explicar el fenómeno completo, realizaremos una _Ordinal Logistic Regression_. Los prerrequisitos para este modelo son:
 
-$$
-\chi' = \sum_{i=1}^n k_i s_i^2 * 2
-$$
+1. **1 Variable dependiente categórica, ordinal**: el factor 0 (rango salarial de 0 a 10,000) es menor al factor 1 (rango salarial de 10,000 a 20,000).
+2. **N Variables independientes "mixtas" (como los lonches)**: categóricas ordinales, categóricas no ordinales, y numéricas.
+
+```{r}
+cor_salarios <- hetcor(df_22_r, parallel = TRUE, ncores=9)
+cor_matrix <- cor_salarios$correlations
+```
+
+Veremos si podemos plotear esta `cor_matrix` con Python.
+
+```{python}
+cor_matrix_py = np.matrix(r.cor_matrix)
+fig, ax = plt.subplots(figsize=(10,30))
+df_cor = pd.DataFrame({'col_name': r.df_22_r.columns, 'cor_val': cor_matrix_py[:, -1]})
+sns.heatmap(df_cor.sort_values(by=['cor_val'])['cor_val'], ax=ax, yticklabels=df_cor.sort_values(by=['col_name']))
+```
